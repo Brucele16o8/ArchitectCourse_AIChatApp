@@ -1,0 +1,69 @@
+//
+//  OnboardingIntroView.swift
+//  AIChatCourse
+//
+//  Created by Tung Le on 1/10/2025.
+//
+
+import SwiftUI
+
+struct OnboardingIntroView: View {
+    
+    @Environment(ABTestManager.self) private var abTestManager
+    
+    var body: some View {
+        VStack {
+            Group {
+                Text("Make your own ")
+                +
+                Text("avatars ")
+                    .foregroundStyle(.accent)
+                    .fontWeight(.semibold)
+                +
+                Text("and chat with them!\n\nHave ")
+                +
+                Text("real conversations ")
+                    .foregroundStyle(.accent)
+                    .fontWeight(.semibold)
+                +
+                Text("with AI generated repsonses.")
+            }
+            .baselineOffset(6)
+            .minimumScaleFactor(0.5)
+            .frame(maxHeight: .infinity)
+            .padding(24)
+            
+            /// Button
+            NavigationLink {
+                if abTestManager.activeTests.onboardingCommunityTest {
+                    OnboardingCommunityView()
+                } else {
+                    OnboardingColorView()
+                }
+            } label: {
+                Text("Continue")
+                    .callToActionButton()
+            }
+            .accessibilityIdentifier("ContinueButton")
+        }
+        .padding(24)
+        .font(.title3)
+        .toolbar(.hidden, for: .navigationBar)
+        .screenAppearAnalytics(name: "OnboardingIntroView")
+    }
+}
+
+#Preview("Original") {
+    NavigationStack {
+        OnboardingIntroView()
+    }
+    .previewEnvironment()
+}
+
+#Preview("Onb Community Test") {
+    NavigationStack {
+        OnboardingIntroView()
+    }
+    .environment(ABTestManager(service: MockABTestService(onboardingCommunityTest: true)))
+    .previewEnvironment()
+}

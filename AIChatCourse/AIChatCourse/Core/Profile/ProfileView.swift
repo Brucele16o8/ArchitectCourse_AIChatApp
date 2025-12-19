@@ -1,0 +1,231 @@
+//
+//  ProfileView.swift
+//  AIChatCourse
+//
+//  Created by Tung Le on 1/10/2025.
+//
+
+import SwiftUI
+
+struct ProfileView: View {
+    
+    @Environment(AuthManager.self) private var authManager
+    @Environment(UserManager.self) private var userManager
+    @Environment(AvatarManager.self) private var avatarManager
+    @Environment(LogManager.self) private var logManager
+    
+    @State private var showSettingsView: Bool = false
+    @State private var showCreateAvatarView: Bool = false
+    @State private var currentUser: UserModel?
+    @State private var myAvatars: [AvatarModel] = []
+    @State private var isLoading: Bool = true
+    @State private var showAlert: AnyAppAlert?
+    
+    @State private var path: [NavigationPathOption] = []
+    
+    var body: some View {
+        NavigationStack(path: $path) {
+            List {
+                myInfoSection
+                myAvatarSection
+            }
+            .navigationTitle("Profile")
+            .navigationDestinationForCoreModule(path: $path)
+            .showCustomAlert(alert: $showAlert)
+            .screenAppearAnalytics(name: "ProfileView")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    settingsButton
+                }
+            }
+        }
+        .sheet(isPresented: $showSettingsView) {
+            SettingsView()
+        }
+        .fullScreenCover(isPresented: $showCreateAvatarView, onDismiss: {
+            Task {
+                await loadData()
+            }
+        }, content: {
+            CreateAvatarView()
+        })
+        .task {
+            await loadData()
+        }
+    }
+    
+    // MARK: - Events
+    enum Event: LoggableEvent {
+        case loadAvatarStart
+        case loadAvatarSuccess(count: Int)
+        case loadAvatarFail(error: Error)
+        case settingsPressed
+        case newAvatarPressed
+        case avatarPressed(avatar: AvatarModel)
+        case deleteAvatarStart(avatar: AvatarModel)
+        case deleteAvatarSuccess(avatar: AvatarModel)
+        case deleteAvatarFail(error: Error)
+        
+        var eventName: String {
+            switch self {
+            case .loadAvatarStart:             return "ProfileView_LoadAvatar_Start"
+            case .loadAvatarSuccess:           return "ProfileView_LoadAvatar_Success"
+            case .loadAvatarFail:              return "ProfileView_LoadAvatar_Fail"
+            case .settingsPressed:             return "ProfileView_Settings_Pressed"
+            case .newAvatarPressed:            return "ProfileView_NewAvatar_Pressed"
+            case .avatarPressed:               return "ProfileView_Avatar_Pressed"
+            case .deleteAvatarStart:           return "ProfileView_DeleteAvatar_Start"
+            case .deleteAvatarSuccess:         return "ProfileView_DeleteAvatar_Success"
+            case .deleteAvatarFail:            return "ProfileView_DeleteAvatar_Fail"
+            }
+        }
+        
+        var parameters: [String: Any]? {
+            switch self {
+            case .loadAvatarSuccess(count: let count):
+                return [
+                    "avatar_counts": count
+                ]
+            case .loadAvatarFail(error: let error), .deleteAvatarFail(error: let error):
+                return error.eventParameters
+            case .avatarPressed(avatar: let avatar), .deleteAvatarStart(avatar: let avatar), .deleteAvatarSuccess(avatar: let avatar):
+                return avatar.eventParameters
+            default:
+                return nil
+            }
+        }
+        
+        var type: LogType {
+            switch self {
+            case .loadAvatarFail, .deleteAvatarFail:
+                return .severe
+            default:
+                return .analytic
+            }
+        }
+    }
+    
+    // MARK: - View Variable
+    private var myInfoSection: some View {
+        Section {
+            ZStack {
+                Circle()
+                    .fill(currentUser?.profileColorCalculated ?? .accent)
+            }
+            .frame(width: 100, height: 100)
+            .frame(maxWidth: .infinity)
+            .removeListRowFormatting()
+        }
+    }
+    
+    private var myAvatarSection: some View {
+        Section {
+            if myAvatars.isEmpty {
+                Group {
+                    if isLoading {
+                        ProgressView()
+                    } else {
+                        Text("Click + to create an avatar")
+                    }
+                }
+                .padding(50)
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(.secondary)
+                .removeListRowFormatting()
+            } else {
+                ForEach(myAvatars, id: \.self) { avatar in
+                    CustomListCellView(
+                        imageName: avatar.profileImageName,
+                        title: avatar.name,
+                        subtitle: nil
+                    )
+                    .anyButton(.highlight, action: {
+                        onAvatarPressed(avatar: avatar)
+                    })
+                    .removeListRowFormatting()
+                }
+                .onDelete { indexSet in
+                    onDeleteAvatar(indexSet: indexSet)
+                }
+            }
+        } header: {
+            HStack(spacing: 0) {
+                Text("My Avatar")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Spacer()
+                Image(systemName: "plus.circle.fill")
+                    .font(.title)
+                    .foregroundColor(.accent)
+                    .anyButton {
+                        onNewAvatarButtonPressed()
+                    }
+            }
+        }
+    }
+    
+    private var settingsButton: some View {
+        Image(systemName: "gear")
+            .font(.headline)
+            .foregroundStyle(.accent)
+            .anyButton {
+                onSettingsButotnPressed()
+            }
+    }
+    
+    // MARK: - Heper method
+    private func loadData() async {
+        self.currentUser = userManager.currentUser
+        logManager.trackEvent(event: Event.loadAvatarStart)
+        
+        do {
+            let uid = try authManager.getAuthId()
+            myAvatars = try await avatarManager.getAvatarsForAuthor(userId: uid)
+            logManager.trackEvent(event: Event.loadAvatarSuccess(count: myAvatars.count))
+
+        } catch {
+            logManager.trackEvent(event: Event.loadAvatarFail(error: error))
+        }
+        
+        isLoading = false
+    }
+    
+    private func onSettingsButotnPressed() {
+        showSettingsView = true
+        logManager.trackEvent(event: Event.settingsPressed)
+    }
+    
+    private func onNewAvatarButtonPressed() {
+        showCreateAvatarView = true
+        logManager.trackEvent(event: Event.newAvatarPressed)
+    }
+    
+    private func onAvatarPressed(avatar: AvatarModel) {
+        path.append(.chat(avatarId: avatar.avatarId, chat: nil))
+        logManager.trackEvent(event: Event.avatarPressed(avatar: avatar))
+    }
+    
+    private func onDeleteAvatar(indexSet: IndexSet) {
+        guard let index = indexSet.first else { return }
+        let avatar = myAvatars[index]
+        logManager.trackEvent(event: Event.deleteAvatarStart(avatar: avatar))
+        
+        Task {
+            do {
+                try await avatarManager.removeAuthorIdFromAvatar(avatarId: avatar.id)
+                myAvatars.remove(at: index)
+                logManager.trackEvent(event: Event.deleteAvatarSuccess(avatar: avatar))
+
+            } catch {
+                showAlert = AnyAppAlert(title: "Unable to delete avatar.", subtitle: "Please try again.")
+                logManager.trackEvent(event: Event.deleteAvatarFail(error: error))
+            }
+        }
+    }
+    
+} // 🧱
+
+#Preview {
+    ProfileView()
+        .previewEnvironment()
+}

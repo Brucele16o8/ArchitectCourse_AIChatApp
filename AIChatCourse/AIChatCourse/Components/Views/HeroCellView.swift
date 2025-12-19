@@ -1,0 +1,71 @@
+//
+//  HeroCellView.swift
+//  AIChatCourse
+//
+//  Created by Tung Le on 2/10/2025.
+//
+
+import SwiftUI
+
+struct HeroCellView: View {
+    var title: String? = "This is some title"
+    var subTitle: String? = "This is some subtitle that will go here."
+    var imageName: String? = Constants.randomImage
+    
+    var body: some View {
+        ZStack {
+            if let imageName {
+                ImageLoaderView(urlString: imageName)
+            } else {
+                Rectangle()
+                    .fill(.accent)
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let title {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.3)
+                }
+                if let subTitle {
+                    Text(subTitle)
+                        .font(.subheadline)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.3)
+                }
+            }
+            .padding(16)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .addingGradientBackgroundForText()
+        }
+        .cornerRadius(16)
+    }
+}
+
+#Preview {
+    ScrollView {
+        VStack {
+            HeroCellView()
+                .frame(width: 300, height: 200)
+            
+            HeroCellView()
+                .frame(width: 300, height: 400)
+            
+            HeroCellView()
+                .frame(width: 200, height: 400)
+            
+            HeroCellView(imageName: nil)
+                .frame(width: 300, height: 200)
+            
+            HeroCellView(title: nil)
+                .frame(width: 300, height: 200)
+            
+            HeroCellView(subTitle: nil)
+                .frame(width: 300, height: 200)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}

@@ -1,0 +1,207 @@
+//
+//  ChatView.swift
+//  AIChatCourse
+//
+//  Created by Tung Le on 14/10/2025.
+//
+import SwiftUI
+
+struct ChatViewDelegate {
+    var chat: ChatModel?
+    var avatarId: String = AvatarModel.mock.avatarId
+}
+
+struct ChatView: View {
+    @State var viewModel: ChatViewModel
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    @ViewBuilder var payWallView: () -> AnyView
+    
+    let delegate: ChatViewDelegate
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            scrollViewSection
+            textFieldSection
+        }
+        .navigationTitle(viewModel.avatar?.name ?? "")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack {
+                    if viewModel.isGeneratingResponse {
+                        ProgressView()
+                    }
+                    
+                    Image(systemName: "ellipsis")
+                        .padding(8)
+                        .anyButton(.plain) {
+                            viewModel.onChatSettingPressed(onDidDeleteChat: {
+                                dismiss()
+                            })
+                        }
+                }
+            }
+        }
+        .screenAppearAnalytics(name: "ChatView")
+        .showCustomAlert(type: .confirmationDiaglog, alert: $viewModel.showChatSettings)
+        .showCustomAlert(alert: $viewModel.showAlert)
+        .showModal(showModal: $viewModel.showProfileModal) {
+            if let avatar = viewModel.avatar {
+                profileModal(avatar: avatar)
+            }
+        }
+        .sheet(isPresented: $viewModel.showPaywall, content: {
+            payWallView()
+        })
+        .task {
+            await viewModel.loadAvatar(avatarId: delegate.avatarId)
+        }
+        .task {
+            await viewModel.loadChat(avatarId: delegate.avatarId)
+            await viewModel.listenForChatMessage()
+        }
+        .onFirstAppear {
+            viewModel.onViewFirstAppear()
+        }
+    }
+    
+    // MARK: - Subviews
+    private func timestampView(date: Date) -> some View {
+        Group {
+            Text(date.formatted(date: .long, time: .omitted))
+            +
+            Text(" • ")
+            +
+            Text(date.formatted(date: .omitted, time: .shortened))
+        }
+        .foregroundStyle(.secondary)
+        .font(.callout)
+        .lineLimit(1)
+        .minimumScaleFactor(0.3)
+    }
+    
+    private var scrollViewSection: some View {
+        ScrollView {
+            LazyVStack(spacing: 24) {
+                ForEach(viewModel.chatMessages) { message in
+                    if viewModel.messageIsDelayed(message: message) {
+                        timestampView(date: message.dateCreatedCalculated)
+                    }
+                    
+                    let isCurrentUser = viewModel.messageIsCurrentUser(message: message)
+                    ChatBubbleViewBuilder(
+                        message: message,
+                        isCurrentUser: isCurrentUser,
+                        currentUserProfileColor: viewModel.currentUser?.profileColorCalculated ?? .accent,
+                        imageName: isCurrentUser ? nil : viewModel.avatar?.profileImageName,
+                        onImagePressed: viewModel.onAvatarImagePressed
+                    )
+                    .onAppear {
+                        viewModel.onMessageDidAppear(message: message)
+                    }
+                    .id(message.id)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(8)
+            .rotationEffect(.degrees(180))
+        }
+        .rotationEffect(.degrees(180))
+        .scrollPosition(id: $viewModel.scrollPosition, anchor: .center)
+        .animation(.default, value: viewModel.chatMessages.count)
+        .animation(.default, value: viewModel.scrollPosition)
+    }
+    
+    private var textFieldSection: some View {
+        TextField("Say something...", text: $viewModel.textFieldText)
+            .keyboardType(.alphabet)
+            .autocorrectionDisabled(true)
+            .padding(12)
+            .padding(.trailing, 60)
+            .accessibilityIdentifier("ChatTextField")
+            .overlay(
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32))
+                    .padding(.trailing, 4)
+                    .foregroundStyle(.accent)
+                    .anyButton(.plain, action: {
+                        viewModel.onSendMessagePressed(avatarId: delegate.avatarId)
+                    })
+                ,
+                alignment: .trailing
+            )
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 100)
+                        .fill(Color(uiColor: .systemBackground))
+                    
+                    RoundedRectangle(cornerRadius: 100)
+                        .stroke(Color.gray.opacity(0.3))
+                }
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: .secondarySystemBackground))
+    }
+    
+    private func profileModal(avatar: AvatarModel) -> some View {
+        ProfileModalView(
+            imageName: avatar.profileImageName,
+            title: avatar.name,
+            subtitle: avatar.characterOption?.rawValue.capitalized,
+            headline: avatar.characterDescription,
+            onXMarkPressed: {
+                
+            }
+        )
+        .padding(40)
+        .transition(.slide)
+    }
+    
+} // 🧱
+
+#Preview("Working chat - Not premium") {
+    let container = DevPreview.shared.container
+    let builder = CoreBuilder(interactor: CoreInteractor(container: container))
+    
+    return NavigationStack {
+        builder.chatView()
+            .previewEnvironment()
+    }
+}
+
+#Preview("Working chat - Premium") {
+    let container = DevPreview.shared.container
+    container.register(PurchaseManager.self, service: PurchaseManager(service: MockPurchaseService(activeEntitlements: [.mock])))
+    let builder = CoreBuilder(interactor: CoreInteractor(container: container))
+    
+    return NavigationStack {
+        builder.chatView()
+            .previewEnvironment()
+    }
+}
+
+#Preview("Slow AI Generation") {
+    let container = DevPreview.shared.container
+    container.register(AIManager.self, service: AIManager(service: MockAIService(delay: 10.0)))
+    let builder = CoreBuilder(interactor: CoreInteractor(container: container))
+    
+    return NavigationStack {
+        builder.chatView()
+            .previewEnvironment()
+    }
+}
+
+#Preview("Failed AI Generation") {
+    let container = DevPreview.shared.container
+    container.register(AIManager.self, service: AIManager(service: MockAIService(delay: 2.0, showError: true)))
+    container.register(PurchaseManager.self, service: PurchaseManager(service: MockPurchaseService(activeEntitlements: [.mock])))
+    let builder = CoreBuilder(interactor: CoreInteractor(container: container))
+
+    return NavigationStack {
+        builder.chatView()
+            .previewEnvironment()
+    }
+}
